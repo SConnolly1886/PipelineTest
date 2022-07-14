@@ -1,10 +1,13 @@
 version: 0.2
 phases:
-  pre_build:
+  install:
     commands:
-      - terraform init
-      - terraform validate
-  
+      - echo "Installing terraform..."
+      - cd /usr/bin
+      - curl -O https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+      - unzip terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+      - terraform --version
+      - echo "Completed installing terraform..."
   build:
     commands:
       - terraform apply --auto-approve
