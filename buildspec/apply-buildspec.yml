@@ -1,4 +1,7 @@
 version: 0.2
+env:
+  variables:
+    TERRAFORM_VERSION: 1.0.7
 phases:
   install:
     commands:
