@@ -8,6 +8,9 @@ module "s3" {
 
 module "vpc" {
   source                  = "./modules/vpc"
+  providers               = {
+    aws = "aws"
+  }
   environment_name        = "sandbox"
   param_post_fix          = ""
   log_bucket              = module.s3.s3_arn
@@ -37,7 +40,7 @@ module "vpc" {
 module "vpc2" {
   source                  = "./modules/vpc"
   providers               = {
-    aws = aws.use2
+    aws = "aws.use2"
   }
   environment_name        = "sandbox"
   log_bucket              = module.s3.s3_arn
