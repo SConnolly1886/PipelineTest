@@ -21,11 +21,11 @@ provider "aws" {
   }
 }
 
-provider "aws" {
-  region = "us-east-2"
-  alias = "use2"
-  assume_role {
-    role_arn     = var.account
-    session_name = "INFRA_BUILD"
-  }
-}
+# provider "aws" {
+#   region = "us-east-2"
+#   alias = "use2"
+#   assume_role {
+#     role_arn     = var.account
+#     session_name = "INFRA_BUILD"
+#   }
+# }
