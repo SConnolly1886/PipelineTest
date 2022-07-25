@@ -7,7 +7,7 @@ variable "region" {
 variable "account" {
   type        = string
   description = "Target AWS account number"
-  default = "arn:aws:iam::587194664462:role/InfraBuildRole"
+#   default = "arn:aws:iam::587194664462:role/InfraBuildRole"
 }
 
 variable "env" {
