@@ -10,7 +10,7 @@ data "aws_availability_zones" "available" {
 module "regional" {
   source = "./modules/regional"
   account      = var.account
-  region       = data.aws_region.current.name
+  region       = var.region
   env          = var.env
   team         = var.team
 }
