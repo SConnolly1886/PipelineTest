@@ -9,7 +9,7 @@ module "s3" {
 module "vpc" {
   source                  = "./modules/vpc"
   providers               = {
-    aws = "aws"
+    aws = aws
   }
   environment_name        = "sandbox"
   param_post_fix          = ""
