@@ -1,316 +1,103 @@
-provider "aws" {
-  region = local.primary.region
-  assume_role {
-  role_arn     = var.account
-  session_name = "INFRA_BUILD"
-  }
-}
-
-provider "aws" {
-  alias  = "secondary"
-  region = local.secondary.region
-  assume_role {
-  role_arn     = var.account
-  session_name = "INFRA_BUILD"
-  }
-}
-
 locals {
-  name = "forr-${var.team}"
-  primary = {
-    region      = var.region
-  }
-  secondary = {
-    region      = "${lookup(var.region_mapping, var.region)}"
-  }
-  tags = {
-    Owner       = "${var.team}"
-    Environment = "${var.env}"
-  }
+  internal_alb_target_groups = {for service, config in var.microservice_config : service => config.alb_target_group if !config.is_public}
+  public_alb_target_groups   = {for service, config in var.microservice_config : service => config.alb_target_group if config.is_public}
 }
 
 data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
-################################################################################
-# Supporting Resources
-################################################################################
-
-module "primary_vpc" {
-  source  = "./modules/vpc"
-
-  name = local.name
-  cidr = "10.16.0.0/16"
-
-  azs                 = ["${local.primary.region}a", "${local.primary.region}b", "${local.primary.region}c"]
-  private_subnets     = ["10.16.1.0/24", "10.16.2.0/24", "10.16.3.0/24"]
-  public_subnets      = ["10.16.11.0/24", "10.16.12.0/24", "10.16.13.0/24"]
-  database_subnets    = ["10.16.21.0/24", "10.16.22.0/24", "10.16.23.0/24"]
-  elasticache_subnets = ["10.16.31.0/24", "10.16.32.0/24", "10.16.33.0/24"]
-  # enable_nat_gateway = false
-  # single_nat_gateway = false
-  # one_nat_gateway_per_az = false
-  # enable_vpn_gateway = false
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-
-  # VPC Flow Logs (Cloudwatch log group and IAM role will be created)
-  enable_flow_log                      = true
-  create_flow_log_cloudwatch_log_group = true
-  create_flow_log_cloudwatch_iam_role  = true
-  flow_log_max_aggregation_interval    = 60
-
-  tags = local.tags
+module "iam" {
+  source   = "./modules/iam"
+  app_name = var.app_name
 }
 
-module "secondary_vpc" {
-  source  = "./modules/vpc"
-
-  providers = { aws = aws.secondary }
-
-  name = local.name
-  cidr = "10.16.0.0/16"
-
-  azs                 = ["${local.secondary.region}a", "${local.secondary.region}b", "${local.secondary.region}c"]
-  private_subnets     = ["10.16.1.0/24", "10.16.2.0/24", "10.16.3.0/24"]
-  public_subnets      = ["10.16.11.0/24", "10.16.12.0/24", "10.16.13.0/24"]
-  database_subnets    = ["10.16.21.0/24", "10.16.22.0/24", "10.16.23.0/24"]
-  elasticache_subnets = ["10.16.31.0/24", "10.16.32.0/24", "10.16.33.0/24"]
-  # enable_nat_gateway = false
-  # single_nat_gateway = false
-  # one_nat_gateway_per_az = false
-  # enable_vpn_gateway = false
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-
-  # VPC Flow Logs (Cloudwatch log group and IAM role will be created)
-  enable_flow_log                      = true
-  create_flow_log_cloudwatch_log_group = true
-  create_flow_log_cloudwatch_iam_role  = true
-  flow_log_max_aggregation_interval    = 60
-
-  tags = local.tags
+module "vpc" {
+  source             = "./modules/vpc"
+  app_name           = var.app_name
+  env                = var.env
+  cidr               = var.cidr
+  availability_zones = var.availability_zones
+  public_subnets     = var.public_subnets
+  private_subnets    = var.private_subnets
 }
 
-data "aws_iam_policy_document" "rds" {
-  statement {
-    sid       = "Enable IAM User Permissions"
-    actions   = ["kms:*"]
-    resources = ["*"]
-
-    principals {
-      type = "AWS"
-      identifiers = [
-        "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
-        data.aws_caller_identity.current.arn,
-      ]
-    }
-  }
-
-  statement {
-    sid = "Allow use of the key"
-    actions = [
-      "kms:Encrypt",
-      "kms:Decrypt",
-      "kms:ReEncrypt*",
-      "kms:GenerateDataKey*",
-      "kms:DescribeKey"
-    ]
-    resources = ["*"]
-
-    principals {
-      type = "Service"
-      identifiers = [
-        "monitoring.rds.amazonaws.com",
-        "rds.amazonaws.com",
-      ]
-    }
-  }
+module "internal_alb_security_group" {
+  source        = "./modules/sg"
+  name          = "${lower(var.app_name)}-internal-alb-sg"
+  description   = "${lower(var.app_name)}-internal-alb-sg"
+  vpc_id        = module.vpc.vpc_id
+  ingress_rules = var.internal_alb_config.ingress_rules
+  egress_rules  = var.internal_alb_config.egress_rules
 }
 
-resource "aws_kms_key" "primary" {
-  policy = data.aws_iam_policy_document.rds.json
-  tags   = local.tags
+module "public_alb_security_group" {
+  source        = "./modules/sg"
+  name          = "${lower(var.app_name)}-public-alb-sg"
+  description   = "${lower(var.app_name)}-public-alb-sg"
+  vpc_id        = module.vpc.vpc_id
+  ingress_rules = var.public_alb_config.ingress_rules
+  egress_rules  = var.public_alb_config.egress_rules
 }
 
-resource "aws_kms_key" "secondary" {
-  provider = aws.secondary
-
-  policy = data.aws_iam_policy_document.rds.json
-  tags   = local.tags
+module "internal-alb" {
+  source            = "./modules/alb"
+  name              = "${lower(var.app_name)}-internal-alb"
+  env               = var.env
+  team              = var.team
+  subnets           = module.vpc.private_subnets
+  vpc_id            = module.vpc.vpc_id
+  target_groups     = local.internal_alb_target_groups
+  internal          = true
+  listener_port     = 80
+  listener_protocol = "HTTP"
+  listeners         = var.internal_alb_config.listeners
+  security_groups   = [module.internal_alb_security_group.security_group_id]
 }
 
-################################################################################
-# RDS Aurora Module
-################################################################################
-
-resource "aws_rds_global_cluster" "this" {
-  global_cluster_identifier = local.name
-  engine                    = "aurora-postgresql"
-  engine_version            = "13.6"
-  database_name             = var.database_name
-  storage_encrypted         = true
+module "public-alb" {
+  source            = "./modules/alb"
+  name              = "${lower(var.app_name)}-public-alb"
+  env               = var.env
+  team              = var.team
+  subnets           = module.vpc.public_subnets
+  vpc_id            = module.vpc.vpc_id
+  target_groups     = local.public_alb_target_groups
+  internal          = false
+  listener_port     = 80
+  listener_protocol = "HTTP"
+  listeners         = var.public_alb_config.listeners
+  security_groups   = [module.public_alb_security_group.security_group_id]
 }
 
-module "aurora_primary" {
-  source = "./modules/rds-aurora"
-
-  name                      = local.name
-  database_name             = aws_rds_global_cluster.this.database_name
-  engine                    = aws_rds_global_cluster.this.engine
-  engine_version            = aws_rds_global_cluster.this.engine_version
-  global_cluster_identifier = aws_rds_global_cluster.this.id
-  iam_database_authentication_enabled = true
-  # master_username           = var.master_username   # Set to DBAdmin
-  # master_password           = "RANDOMLYGENERATED"
-  monitoring_interval       = 60
-  iam_role_name             = "${local.name}-monitor"
-  autoscaling_enabled       = true
-  autoscaling_min_capacity  = 1
-  autoscaling_max_capacity  = 3
-  instance_class            = "db.r5.large"
-  instances                 = { for i in range(2) : i => {} }
-  kms_key_id                = aws_kms_key.primary.arn
-
-  vpc_id                 = module.primary_vpc.vpc_id
-  db_subnet_group_name   = module.primary_vpc.database_subnet_group_name
-  create_db_subnet_group = false
-  create_security_group  = true
-  allowed_cidr_blocks    = module.primary_vpc.private_subnets_cidr_blocks
-
-  skip_final_snapshot = true
-
-  tags = local.tags
+module "route53_private_zone" {
+  source            = "./modules/route53"
+  internal_url_name = var.internal_zone_name
+  alb               = module.internal-alb.internal_alb
+  vpc_id            = module.vpc.vpc_id
 }
 
-module "aurora_secondary" {
-  source = "./modules/rds-aurora"
-
-  providers = { aws = aws.secondary }
-
-  is_primary_cluster = false
-
-  name                      = local.name
-  engine                    = aws_rds_global_cluster.this.engine
-  engine_version            = aws_rds_global_cluster.this.engine_version
-  global_cluster_identifier = aws_rds_global_cluster.this.id
-  source_region             = local.primary.region
-  iam_database_authentication_enabled = true
-  monitoring_interval       = 60
-  autoscaling_enabled       = true
-  autoscaling_min_capacity  = 1
-  autoscaling_max_capacity  = 2
-  instance_class            = "db.r5.large"
-  instances                 = { for i in range(1) : i => {} }
-  kms_key_id                = aws_kms_key.secondary.arn
-
-  vpc_id                 = module.secondary_vpc.vpc_id
-  db_subnet_group_name   = module.secondary_vpc.database_subnet_group_name
-  create_db_subnet_group = false
-  create_security_group  = true
-  allowed_cidr_blocks    = module.secondary_vpc.private_subnets_cidr_blocks
-
-  skip_final_snapshot = true
-
-  depends_on = [
-    module.aurora_primary
-  ]
-
-  tags = local.tags
+module "ecr" {
+  source           = "./modules/ecr"
+  app_name         = var.app_name
+  ecr_repositories = var.app_services
 }
 
+module "ecs" {
+  source                      = "./modules/ecs"
+  app_name                    = var.app_name
+  env                         = var.env
+  team                        = var.team
+  app_services                = var.app_services
+  account                     = data.aws_caller_identity.current.account_id
+  region                      = data.aws_region.current.name
+  service_config              = var.microservice_config
+  ecs_task_execution_role_arn = module.iam.ecs_task_execution_role_arn
+  vpc_id                      = module.vpc.vpc_id
+  private_subnets             = module.vpc.private_subnets
+  public_subnets              = module.vpc.public_subnets
+  public_alb_security_group   = module.public_alb_security_group
+  internal_alb_security_group = module.internal_alb_security_group
+  internal_alb_target_groups  = module.internal-alb.target_groups
+  public_alb_target_groups    = module.public-alb.target_groups
+}
 
-# ################################################################################
-# # VPC Endpoints Module
-# ################################################################################
-
-# module "vpc_endpoints" {
-#   source = "../../modules/vpc-endpoints"
-
-#   vpc_id             = module.vpc.vpc_id
-#   security_group_ids = [data.aws_security_group.default.id]
-
-#   endpoints = {
-#     s3 = {
-#       service = "s3"
-#       tags    = { Name = "s3-vpc-endpoint" }
-#     },
-#     dynamodb = {
-#       service         = "dynamodb"
-#       service_type    = "Gateway"
-#       route_table_ids = flatten([module.vpc.intra_route_table_ids, module.vpc.private_route_table_ids, module.vpc.public_route_table_ids])
-#       policy          = data.aws_iam_policy_document.dynamodb_endpoint_policy.json
-#       tags            = { Name = "dynamodb-vpc-endpoint" }
-#     },
-#     ssm = {
-#       service             = "ssm"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#       security_group_ids  = [aws_security_group.vpc_tls.id]
-#     },
-#     ssmmessages = {
-#       service             = "ssmmessages"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#     },
-#     lambda = {
-#       service             = "lambda"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#     },
-#     ecs = {
-#       service             = "ecs"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#     },
-#     ecs_telemetry = {
-#       create              = false
-#       service             = "ecs-telemetry"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#     },
-#     ec2 = {
-#       service             = "ec2"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#       security_group_ids  = [aws_security_group.vpc_tls.id]
-#     },
-#     ec2messages = {
-#       service             = "ec2messages"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#     },
-#     ecr_api = {
-#       service             = "ecr.api"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#       policy              = data.aws_iam_policy_document.generic_endpoint_policy.json
-#     },
-#     ecr_dkr = {
-#       service             = "ecr.dkr"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#       policy              = data.aws_iam_policy_document.generic_endpoint_policy.json
-#     },
-#     kms = {
-#       service             = "kms"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#       security_group_ids  = [aws_security_group.vpc_tls.id]
-#     },
-#     codedeploy = {
-#       service             = "codedeploy"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#     },
-#     codedeploy_commands_secure = {
-#       service             = "codedeploy-commands-secure"
-#       private_dns_enabled = true
-#       subnet_ids          = module.vpc.private_subnets
-#     },
-#   }
-
-#   tags = merge(local.tags, {
-#     Project  = "Secret"
-#     Endpoint = "true"
-#   })
-# }
