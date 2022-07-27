@@ -23,7 +23,7 @@ provider "aws" {
 }
 
 provider "aws" {
-  region = "${lookup(var.region_mapping, var.region)}"
+  region = lookup(var.region_mapping, var.region)
   alias = "secondary"
   assume_role {
     role_arn     = var.account
