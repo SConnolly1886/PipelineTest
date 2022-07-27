@@ -139,84 +139,84 @@ resource "aws_kms_key" "secondary" {
   tags   = local.tags
 }
 
-################################################################################
-# RDS Aurora Module
-################################################################################
+# ################################################################################
+# # RDS Aurora Module
+# ################################################################################
 
-resource "aws_rds_global_cluster" "this" {
-  global_cluster_identifier = local.name
-  engine                    = "aurora-postgresql"
-  engine_version            = "13.6"
-  database_name             = var.database_name
-  storage_encrypted         = true
-}
+# resource "aws_rds_global_cluster" "this" {
+#   global_cluster_identifier = local.name
+#   engine                    = "aurora-postgresql"
+#   engine_version            = "13.6"
+#   database_name             = var.database_name
+#   storage_encrypted         = true
+# }
 
-module "aurora_primary" {
-  source = "./modules/rds-aurora"
+# module "aurora_primary" {
+#   source = "./modules/rds-aurora"
 
-  name                      = local.name
-  database_name             = aws_rds_global_cluster.this.database_name
-  engine                    = aws_rds_global_cluster.this.engine
-  engine_version            = aws_rds_global_cluster.this.engine_version
-  global_cluster_identifier = aws_rds_global_cluster.this.id
-  iam_database_authentication_enabled = true
-  # master_username           = var.master_username   # Set to DBAdmin
-  # master_password           = "RANDOMLYGENERATED"
-  monitoring_interval       = 60
-  iam_role_name             = "${local.name}-monitor"
-  autoscaling_enabled       = true
-  autoscaling_min_capacity  = 1
-  autoscaling_max_capacity  = 3
-  instance_class            = "db.r5.large"
-  instances                 = { for i in range(2) : i => {} }
-  kms_key_id                = aws_kms_key.primary.arn
+#   name                      = local.name
+#   database_name             = aws_rds_global_cluster.this.database_name
+#   engine                    = aws_rds_global_cluster.this.engine
+#   engine_version            = aws_rds_global_cluster.this.engine_version
+#   global_cluster_identifier = aws_rds_global_cluster.this.id
+#   iam_database_authentication_enabled = true
+#   # master_username           = var.master_username   # Set to DBAdmin
+#   # master_password           = "RANDOMLYGENERATED"
+#   monitoring_interval       = 60
+#   iam_role_name             = "${local.name}-monitor"
+#   autoscaling_enabled       = true
+#   autoscaling_min_capacity  = 1
+#   autoscaling_max_capacity  = 3
+#   instance_class            = "db.r5.large"
+#   instances                 = { for i in range(2) : i => {} }
+#   kms_key_id                = aws_kms_key.primary.arn
 
-  vpc_id                 = module.primary_vpc.vpc_id
-  db_subnet_group_name   = module.primary_vpc.database_subnet_group_name
-  create_db_subnet_group = false
-  create_security_group  = true
-  allowed_cidr_blocks    = module.primary_vpc.private_subnets_cidr_blocks
+#   vpc_id                 = module.primary_vpc.vpc_id
+#   db_subnet_group_name   = module.primary_vpc.database_subnet_group_name
+#   create_db_subnet_group = false
+#   create_security_group  = true
+#   allowed_cidr_blocks    = module.primary_vpc.private_subnets_cidr_blocks
 
-  skip_final_snapshot = true
+#   skip_final_snapshot = true
 
-  tags = local.tags
-}
+#   tags = local.tags
+# }
 
-module "aurora_secondary" {
-  source = "./modules/rds-aurora"
+# module "aurora_secondary" {
+#   source = "./modules/rds-aurora"
 
-  providers = { aws = aws.secondary }
+#   providers = { aws = aws.secondary }
 
-  is_primary_cluster = false
+#   is_primary_cluster = false
 
-  name                      = local.name
-  engine                    = aws_rds_global_cluster.this.engine
-  engine_version            = aws_rds_global_cluster.this.engine_version
-  global_cluster_identifier = aws_rds_global_cluster.this.id
-  source_region             = local.primary.region
-  iam_database_authentication_enabled = true
-  monitoring_interval       = 60
-  autoscaling_enabled       = true
-  autoscaling_min_capacity  = 1
-  autoscaling_max_capacity  = 2
-  instance_class            = "db.r5.large"
-  instances                 = { for i in range(1) : i => {} }
-  kms_key_id                = aws_kms_key.secondary.arn
+#   name                      = local.name
+#   engine                    = aws_rds_global_cluster.this.engine
+#   engine_version            = aws_rds_global_cluster.this.engine_version
+#   global_cluster_identifier = aws_rds_global_cluster.this.id
+#   source_region             = local.primary.region
+#   iam_database_authentication_enabled = true
+#   monitoring_interval       = 60
+#   autoscaling_enabled       = true
+#   autoscaling_min_capacity  = 1
+#   autoscaling_max_capacity  = 2
+#   instance_class            = "db.r5.large"
+#   instances                 = { for i in range(1) : i => {} }
+#   kms_key_id                = aws_kms_key.secondary.arn
 
-  vpc_id                 = module.secondary_vpc.vpc_id
-  db_subnet_group_name   = module.secondary_vpc.database_subnet_group_name
-  create_db_subnet_group = false
-  create_security_group  = true
-  allowed_cidr_blocks    = module.secondary_vpc.private_subnets_cidr_blocks
+#   vpc_id                 = module.secondary_vpc.vpc_id
+#   db_subnet_group_name   = module.secondary_vpc.database_subnet_group_name
+#   create_db_subnet_group = false
+#   create_security_group  = true
+#   allowed_cidr_blocks    = module.secondary_vpc.private_subnets_cidr_blocks
 
-  skip_final_snapshot = true
+#   skip_final_snapshot = true
 
-  depends_on = [
-    module.aurora_primary
-  ]
+#   depends_on = [
+#     module.aurora_primary
+#   ]
 
-  tags = local.tags
-}
+#   tags = local.tags
+# }
 
 
 # ################################################################################
