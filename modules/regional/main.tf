@@ -21,11 +21,11 @@ locals {
     region      = var.region
   }
   secondary = {
-    region      = "${lookup(var.region_mapping, var.region)}"
+    region      = lookup(var.region_mapping, var.region)
   }
   tags = {
-    Owner       = "${var.team}"
-    Environment = "${var.env}"
+    Owner       = var.team
+    Environment = var.env
   }
 }
 
